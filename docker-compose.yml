@@ -9,8 +9,12 @@ services:
     environment:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MOBSF_API_KEY=${MOBSF_API_KEY}
+      - MONGO_URI=${MONGO_URI}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
     depends_on:
       - mobsf
+      - redis
 
   mobsf:
     image: opensecurity/mobile-security-framework-mobsf:latest
@@ -18,6 +22,28 @@ services:
       - "8008:8008"
     volumes:
       - ./mobsf:/home/mobsf/.MobSF
+
+  redis:
+    image: redis:7.0-alpine
+    container_name: apkshield-redis
+    ports:
+      - "6379:6379"
+
+  celery_worker:
+    build: ./backend
+    container_name: apkshield-celery-worker
+    command: celery -A app.services.celery_service.celery_app worker --loglevel=info
+    volumes:
+      - ./uploads:/app/uploads
+      - ./backend:/app
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MOBSF_API_KEY=${MOBSF_API_KEY}
+      - MONGO_URI=${MONGO_URI}
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
 
   frontend:
     build: ./frontend
@@ -30,3 +56,6 @@ services:
       - REACT_APP_API_URL=http://localhost:8000
     depends_on:
       - backend
+
+volumes:
+  mongodb_data:

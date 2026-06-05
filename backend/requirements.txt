@@ -3,3 +3,7 @@ uvicorn
 python-multipart
 anthropic
 requests
+pymongo
+celery
+redis
+python-dotenv

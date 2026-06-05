@@ -1,6 +1,13 @@
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import subprocess, os, hashlib, uuid
+from dotenv import load_dotenv
+import os
+import logging
+
+load_dotenv()
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("apkshield-backend")
 
 app = FastAPI()
 
@@ -11,34 +18,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-UPLOAD_DIR = "/app/uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Directories
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/app/uploads")
+APKS_DIR = os.path.join(UPLOAD_DIR, "apks")
+os.makedirs(APKS_DIR, exist_ok=True)
 
-@app.post("/api/upload")
-async def upload_apk(file: UploadFile = File(...)):
-    # Save file
-    case_id = str(uuid.uuid4())[:8]
-    apk_path = f"{UPLOAD_DIR}/{case_id}.apk"
-    content = await file.read()
+# Include upload routes from app package
+try:
+    from app.routes.upload_routes import router as upload_router
 
-    with open(apk_path, "wb") as f:
-        f.write(content)
+    app.include_router(upload_router)
+except Exception as e:
+    logger.warning("Could not include upload router: %s", e)
 
-    # Hash it
-    sha256 = hashlib.sha256(content).hexdigest()
 
-    # Unpack with apktool
-    output_dir = f"{UPLOAD_DIR}/{case_id}_unpacked"
-    subprocess.run(["apktool", "d", apk_path, "-o", output_dir, "-f"], 
-                   capture_output=True)
+@app.get("/api/apk/upload")
+async def upload_label():
+    return {"label": "upload routes", "upload_endpoint": "/api/apks/upload"}
 
-    return {
-        "case_id": case_id,
-        "filename": file.filename,
-        "sha256": sha256,
-        "size_bytes": len(content),
-        "status": "unpacked"
-    }
 
 @app.get("/api/health")
 def health():
