@@ -3,6 +3,7 @@ FROM python:3.11-slim
 # Install jadx and apktool dependencies
 RUN apt-get update && apt-get install -y \
     default-jdk-headless \
+    libmagic1 \
     wget \
     unzip \
     && rm -rf /var/lib/apt/lists/*

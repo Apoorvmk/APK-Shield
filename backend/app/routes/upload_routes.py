@@ -13,8 +13,14 @@ router = APIRouter()
 
 logger = logging.getLogger("apkshield.uploads")
 
+import sys
+from pathlib import Path
+
 # Directories and limits (can be overridden with env vars)
-UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/app/uploads")
+BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
+PROJECT_ROOT = BACKEND_DIR.parent
+default_upload_dir = str(PROJECT_ROOT / "uploads") if sys.platform == "win32" else "/app/uploads"
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", default_upload_dir)
 APKS_DIR = os.path.join(UPLOAD_DIR, "apks")
 os.makedirs(APKS_DIR, exist_ok=True)
 
@@ -37,14 +43,19 @@ async def upload_info():
     }
 
 
-@router.post("/api/apks/upload")
+@router.post("/api/upload")
 async def upload_apk(
     file: UploadFile = File(...),
-    source: str = Form(...),
+    source: Optional[str] = Form(None),
     description: Optional[str] = Form(None),
-    analysis_mode: str = Form("static_only"),
+    analysis_mode: Optional[str] = Form(None),
 ):
     """Receive an APK, validate, store, create DB record and enqueue analysis task."""
+    if not source:
+        source = "manual_upload"
+    if not analysis_mode:
+        analysis_mode = "static_only"
+
     valid_sources = {"manual_upload", "bank_portal", "email", "honeypot"}
     if source not in valid_sources:
         raise HTTPException(
@@ -124,7 +135,7 @@ async def upload_apk(
 
     # Enqueue Celery task
     try:
-        analyze_apk.delay(str(sample_id), sha256, storage_path)
+        analyze_apk.delay(str(sample_id), sha256)
     except Exception as e:
         apk_samples_collection.update_one(
             {"_id": sample_id}, {"$set": {"status": "failed", "updated_at": datetime.datetime.utcnow()}}
@@ -134,4 +145,11 @@ async def upload_apk(
 
     logger.info(f"Uploaded APK {stored_filename} queued for analysis (sample_id={sample_id})")
 
-    return {"sample_id": str(sample_id), "status": "queued"}
+    return {
+        "case_id": str(sample_id),
+        "sample_id": str(sample_id),
+        "filename": filename,
+        "sha256": sha256,
+        "size_bytes": file_size,
+        "status": "queued",
+    }
