@@ -4,9 +4,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./uploads:/app/uploads
       - ./backend:/app
+      - ./uploads:/app/uploads
     environment:
+      - PYTHONDONTWRITEBYTECODE=1
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MOBSF_API_KEY=${MOBSF_API_KEY}
       - MONGO_URI=${MONGO_URI}
@@ -34,9 +35,10 @@ services:
     container_name: apkshield-celery-worker
     command: celery -A app.services.celery_service.celery_app worker --loglevel=info
     volumes:
-      - ./uploads:/app/uploads
       - ./backend:/app
+      - ./uploads:/app/uploads
     environment:
+      - PYTHONDONTWRITEBYTECODE=1
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - MOBSF_API_KEY=${MOBSF_API_KEY}
       - MONGO_URI=${MONGO_URI}

@@ -18,6 +18,8 @@ RUN wget https://bitbucket.org/iBotPeaches/apktool/downloads/apktool_2.9.3.jar \
 RUN wget https://github.com/skylot/jadx/releases/download/v1.5.0/jadx-1.5.0.zip \
     -O /tmp/jadx.zip && unzip /tmp/jadx.zip -d /opt/jadx
 ENV PATH="/opt/jadx/bin:$PATH"
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 COPY requirements.txt .

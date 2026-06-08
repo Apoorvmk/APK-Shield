@@ -6,7 +6,6 @@ import datetime
 import logging
 
 from pymongo import MongoClient
-
 from app.services.celery_service import analyze_apk
 
 router = APIRouter()
