@@ -250,3 +250,317 @@ body {
   text-align: center;
   margin-top: 32px;
 }
+
+/* ── Pipeline Progress Indicator ─────────────────── */
+.pipeline-progress {
+  margin-top: 32px;
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  animation: fadeSlideUp 0.4s ease;
+}
+
+.pipeline-progress__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 24px;
+  color: var(--accent);
+}
+
+.pipeline-steps {
+  display: flex;
+  justify-content: space-between;
+  position: relative;
+  align-items: center;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.pipeline-steps::before {
+  content: '';
+  position: absolute;
+  top: 18px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  z-index: 1;
+}
+
+.pipeline-step {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.pipeline-step__indicator {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #171d34;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+}
+
+.pipeline-step__label {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  transition: color 0.3s ease;
+}
+
+.pipeline-step--completed .pipeline-step__indicator {
+  background: rgba(52, 211, 153, 0.15);
+  border-color: var(--success);
+  color: var(--success);
+  box-shadow: 0 0 10px rgba(52, 211, 153, 0.2);
+}
+
+.pipeline-step--completed .pipeline-step__label {
+  color: var(--success);
+}
+
+.pipeline-step--active .pipeline-step__indicator {
+  background: rgba(108, 140, 255, 0.2);
+  border-color: var(--accent);
+  color: var(--text-primary);
+  box-shadow: 0 0 12px var(--accent-glow);
+  animation: pulse-border 1.5s infinite alternate;
+}
+
+.pipeline-step--active .pipeline-step__label {
+  color: var(--text-primary);
+}
+
+.pipeline-failed {
+  padding: 16px;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+@keyframes pulse-border {
+  from {
+    box-shadow: 0 0 4px var(--accent-glow);
+  }
+  to {
+    box-shadow: 0 0 16px rgba(108, 140, 255, 0.6);
+  }
+}
+
+/* ── Verdict & Threat Scoring ────────────────────── */
+.verdict-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 24px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  margin-bottom: 24px;
+}
+
+.verdict-header__title {
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.verdict-badge {
+  padding: 6px 16px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.verdict-badge--safe {
+  background: rgba(52, 211, 153, 0.15);
+  color: var(--success);
+  border: 1px solid rgba(52, 211, 153, 0.3);
+}
+
+.verdict-badge--suspicious {
+  background: rgba(251, 191, 36, 0.15);
+  color: var(--warning);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+.verdict-badge--dangerous {
+  background: rgba(248, 113, 113, 0.15);
+  color: var(--danger);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+}
+
+.score-container {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+
+.score-circle {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.4rem;
+  font-weight: 800;
+  border: 4px solid currentColor;
+}
+
+.score-circle--safe {
+  color: var(--success);
+  box-shadow: 0 0 15px rgba(52, 211, 153, 0.15);
+}
+
+.score-circle--suspicious {
+  color: var(--warning);
+  box-shadow: 0 0 15px rgba(251, 191, 36, 0.15);
+}
+
+.score-circle--dangerous {
+  color: var(--danger);
+  box-shadow: 0 0 15px rgba(248, 113, 113, 0.15);
+}
+
+.score-details {
+  display: flex;
+  flex-direction: column;
+}
+
+.score-details__title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.score-details__desc {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+/* ── Claude Explanation Card ─────────────────────── */
+.explanation-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 28px;
+  line-height: 1.6;
+}
+
+.explanation-card__title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.explanation-card__content {
+  font-size: 0.9rem;
+  color: #d1d5db;
+  white-space: pre-line;
+}
+
+.explanation-card__content ul {
+  padding-left: 20px;
+  margin-top: 10px;
+}
+
+.explanation-card__content li {
+  margin-bottom: 6px;
+}
+
+/* ── Collapsible Findings List ────────────────────── */
+.findings-section {
+  margin-top: 24px;
+}
+
+.findings-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.findings-header:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.findings-header__title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.findings-header__count {
+  background: rgba(108, 140, 255, 0.15);
+  color: var(--accent);
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-left: 10px;
+}
+
+.findings-header__arrow {
+  transition: transform 0.2s;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.findings-header__arrow--open {
+  transform: rotate(180deg);
+}
+
+.findings-list {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeSlideUp 0.3s ease;
+}
+
+.finding-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  background: rgba(16, 22, 40, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.02);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.finding-item__icon {
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.finding-item__text {
+  color: #e5e7eb;
+}

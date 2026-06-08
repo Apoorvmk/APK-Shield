@@ -6,6 +6,7 @@ import datetime
 import logging
 
 from pymongo import MongoClient
+from bson import ObjectId
 from app.services.celery_service import analyze_apk
 
 router = APIRouter()
@@ -30,16 +31,6 @@ MONGO_URI = os.getenv("MONGO_URI")
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["apkshield"]
 apk_samples_collection = db["apk_samples"]
-
-
-@router.get("/api/apks/upload")
-async def upload_info():
-    """Return brief instructions for the upload endpoint."""
-    return {
-        "message": "POST an APK file to this endpoint with fields: file, source, analysis_mode, description(optional).",
-        "sources": ["manual_upload", "bank_portal", "email", "honeypot"],
-        "analysis_modes": ["static_only", "full"],
-    }
 
 
 @router.post("/api/upload")
@@ -152,3 +143,34 @@ async def upload_apk(
         "size_bytes": file_size,
         "status": "queued",
     }
+
+
+@router.get("/api/samples/{sample_id}")
+async def get_sample_details(sample_id: str):
+    """Retrieve the status and results of an APK analysis by sample ID."""
+    try:
+        obj_id = ObjectId(sample_id)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid sample ID format. Must be a 24-character hex string."
+        )
+
+    sample = apk_samples_collection.find_one({"_id": obj_id})
+    if not sample:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"APK sample not found with ID '{sample_id}'"
+        )
+
+    # Convert ObjectId to string for JSON serialization
+    sample["id"] = str(sample["_id"])
+    del sample["_id"]
+
+    # Convert nested object IDs
+    if "unpacked_data_id" in sample and sample["unpacked_data_id"]:
+        sample["unpacked_data_id"] = str(sample["unpacked_data_id"])
+    if "manifest_id" in sample and sample["manifest_id"]:
+        sample["manifest_id"] = str(sample["manifest_id"])
+
+    return sample

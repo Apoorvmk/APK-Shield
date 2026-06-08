@@ -7,7 +7,9 @@ from pymongo import MongoClient
 from bson import ObjectId
 
 from app.services.unpacker import unpack_apk
-from app.services.yara_scanner import run_yara_scan  # ← new
+from app.services.yara_scanner import run_yara_scan
+from app.services.risk_scorer import compute_risk_score
+from app.services.claude_service import generate_explanation
 
 import sys
 from pathlib import Path
@@ -30,7 +32,7 @@ celery_app = Celery("tasks", broker=BROKER_URL, backend=RESULT_BACKEND)
 @celery_app.task(name="analyze_apk")
 def analyze_apk(sample_id_str: str, sha256: str):
     file_path = os.path.join(UPLOAD_DIR, "apks", f"{sha256}.apk")
-    logger.info(f"[Celery] Starting analysis for sample: {sample_id_str}, sha256: {sha256}, path: {file_path}")
+    logger.info(f"[Celery] Starting analysis for sample: {sample_id_str}, sha256: {sha256}")
 
     client = MongoClient(MONGO_URI)
     db = client["apkshield"]
@@ -43,14 +45,14 @@ def analyze_apk(sample_id_str: str, sha256: str):
     try:
         samples_collection.update_one(
             {"_id": sample_id},
-            {"$set": {"status": "unpacking", "updated_at": datetime.datetime.now(datetime.timezone.utc)}},
+            {"$set": {"status": "unpacking", "updated_at": datetime.datetime.utcnow()}},
         )
     except Exception:
         logger.exception("Failed to set sample status to unpacking")
 
     try:
         unpacked_result = unpack_apk(file_path, sha256)
-        logger.info(f"[Celery] APK unpack complete for sample: {sample_id_str}")
+        logger.info(f"[Celery] Unpack complete for {sample_id_str}")
 
         manifest_data = unpacked_result["manifest"]
         inventory_data = unpacked_result["inventory"]
@@ -68,18 +70,17 @@ def analyze_apk(sample_id_str: str, sha256: str):
         logger.exception("APK unpack failed for sample: %s", sample_id_str)
         samples_collection.update_one(
             {"_id": sample_id},
-            {"$set": {"status": "failed", "updated_at": datetime.datetime.now(datetime.timezone.utc)}},
+            {"$set": {"status": "failed", "updated_at": datetime.datetime.utcnow()}},
         )
         raise
 
     # ── Stage 2: YARA scan ────────────────────────────────────────────────────
-    # unpacker writes extracted files to UPLOAD_DIR/unpacked/{sha256}/
     unpacked_dir = os.path.join(UPLOAD_DIR, "unpacked", sha256)
 
     try:
         samples_collection.update_one(
             {"_id": sample_id},
-            {"$set": {"status": "scanning", "updated_at": datetime.datetime.now(datetime.timezone.utc)}},
+            {"$set": {"status": "scanning", "updated_at": datetime.datetime.utcnow()}},
         )
     except Exception:
         logger.exception("Failed to set sample status to scanning")
@@ -88,12 +89,10 @@ def analyze_apk(sample_id_str: str, sha256: str):
         yara_results = run_yara_scan(apk_path=file_path, unpacked_dir=unpacked_dir)
         logger.info(
             f"[Celery] YARA scan complete for {sample_id_str}: "
-            f"{yara_results['yara_hit_count']} hits, "
-            f"max_severity={yara_results['yara_max_severity']}"
+            f"{yara_results['yara_hit_count']} hits, max_severity={yara_results['yara_max_severity']}"
         )
     except Exception:
-        # YARA failure is non-fatal — log and continue with empty results
-        logger.exception("YARA scan raised an unexpected exception for sample: %s", sample_id_str)
+        logger.exception("YARA scan crashed for sample: %s", sample_id_str)
         yara_results = {
             "yara_hits": [],
             "yara_hit_count": 0,
@@ -102,12 +101,67 @@ def analyze_apk(sample_id_str: str, sha256: str):
             "yara_scan_error": "Scanner crashed — see worker logs",
         }
 
-    # ── Store results ─────────────────────────────────────────────────────────
-    now = datetime.datetime.now(datetime.timezone.utc)
+    # ── Stage 3: Risk scoring ─────────────────────────────────────────────────
+    try:
+        samples_collection.update_one(
+            {"_id": sample_id},
+            {"$set": {"status": "scoring", "updated_at": datetime.datetime.utcnow()}},
+        )
+    except Exception:
+        logger.exception("Failed to set sample status to scoring")
+
+    try:
+        score_result = compute_risk_score(manifest_data, yara_results)
+        logger.info(
+            f"[Celery] Risk score computed for {sample_id_str}: "
+            f"score={score_result['risk_score']}, verdict={score_result['verdict']}"
+        )
+    except Exception:
+        logger.exception("Risk scoring failed for sample: %s", sample_id_str)
+        score_result = {
+            "risk_score": 0,
+            "verdict": "unknown",
+            "findings": [],
+            "score_breakdown": {},
+            "flagged_permissions": [],
+            "yara_hit_count": yara_results.get("yara_hit_count", 0),
+            "yara_categories": yara_results.get("yara_categories", []),
+            "yara_max_severity": yara_results.get("yara_max_severity", "none"),
+        }
+
+    # ── Stage 4: Explanation ──────────────────────────────────────────────────
+    try:
+        samples_collection.update_one(
+            {"_id": sample_id},
+            {"$set": {"status": "explaining", "updated_at": datetime.datetime.utcnow()}},
+        )
+    except Exception:
+        logger.exception("Failed to set sample status to explaining")
+
+    try:
+        app_name = manifest_data.get("app_name")
+        package_name = manifest_data.get("package_name")
+        explanation = generate_explanation(
+            app_name=app_name,
+            package_name=package_name,
+            risk_score=score_result["risk_score"],
+            verdict=score_result["verdict"],
+            findings=score_result["findings"],
+        )
+        logger.info(f"[Celery] Claude explanation complete for {sample_id_str}")
+    except Exception:
+        logger.exception("Claude explanation crashed for sample: %s", sample_id_str)
+        explanation = "Error generating analysis explanation."
+
+    score_result["explanation"] = explanation
+
+    # ── Store everything ──────────────────────────────────────────────────────
+    now = datetime.datetime.utcnow()
 
     unpacked_doc = {
         **inventory_data,
-        **yara_results,               # yara_hits, yara_hit_count, yara_categories, etc.
+        **yara_results,
+        **score_result,
         "manifest_id": manifest_id,
         "sample_id": sample_id,
         "sha256": sha256,
@@ -123,10 +177,10 @@ def analyze_apk(sample_id_str: str, sha256: str):
     unpacked_data_id = res.inserted_id
 
     update_doc = {
-        "status": "scanned",
+        "status": "completed",
         "unpacked_data_id": unpacked_data_id,
         "manifest_id": manifest_id,
-        # Manifest summary fields on the sample doc for quick queries
+        # Manifest summary
         "package_name": manifest_data.get("package_name"),
         "app_name": manifest_data.get("app_name"),
         "version_name": manifest_data.get("version_name"),
@@ -134,20 +188,21 @@ def analyze_apk(sample_id_str: str, sha256: str):
         "min_sdk": manifest_data.get("min_sdk"),
         "target_sdk": manifest_data.get("target_sdk"),
         "decompilation_status": unpacked_result.get("decompilation_status"),
-        # YARA summary on the sample doc for filtering without a join
+        # YARA summary
         "yara_hit_count": yara_results["yara_hit_count"],
         "yara_categories": yara_results["yara_categories"],
         "yara_max_severity": yara_results["yara_max_severity"],
-        "yara_scan_error": yara_results["yara_scan_error"],
+        "yara_scan_error": yara_results.get("yara_scan_error"),
+        # Score summary — these are what the frontend and Claude call reads
+        "risk_score": score_result["risk_score"],
+        "verdict": score_result["verdict"],
+        "findings": score_result["findings"],
+        "explanation": score_result["explanation"],
         "updated_at": now,
     }
     samples_collection.update_one({"_id": sample_id}, {"$set": update_doc})
 
     logger.info(
-        f"[Celery] Analysis stored for {sample_id_str} — "
-        f"status=scanned, yara_hits={yara_results['yara_hit_count']}"
+        f"[Celery] Pipeline complete for {sample_id_str} — "
+        f"verdict={score_result['verdict']}, score={score_result['risk_score']}"
     )
-
-    # ── Next stages (coming soon) ─────────────────────────────────────────────
-    # TODO: risk_score = compute_risk_score(manifest_data, yara_results)
-    # TODO: explanation = call_claude(risk_score, manifest_data, yara_results)

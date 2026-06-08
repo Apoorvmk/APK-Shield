@@ -11,6 +11,8 @@ function App() {
   const [error, setError] = useState(null);
   const [dragActive, setDragActive] = useState(false);
   const [health, setHealth] = useState(null);
+  const [analyzingSampleId, setAnalyzingSampleId] = useState(null);
+  const [showFindings, setShowFindings] = useState(false);
   const inputRef = useRef();
 
   /* ── Health check ──────────────────────────────── */
@@ -20,6 +22,33 @@ function App() {
       .then(() => setHealth('ok'))
       .catch(() => setHealth('err'));
   }, []);
+
+  /* ── Polling for results ────────────────────────── */
+  useEffect(() => {
+    if (!analyzingSampleId) return;
+
+    const poll = async () => {
+      try {
+        const res = await axios.get(`${API}/api/samples/${analyzingSampleId}`);
+        const data = res.data;
+        setResult(data);
+
+        if (data.status === 'completed' || data.status === 'failed') {
+          setAnalyzingSampleId(null); // Stop polling
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+        setError('Failed to fetch analysis update.');
+        setAnalyzingSampleId(null);
+      }
+    };
+
+    // Run first check immediately
+    poll();
+
+    const interval = setInterval(poll, 2000);
+    return () => clearInterval(interval);
+  }, [analyzingSampleId]);
 
   /* ── Drag & Drop ───────────────────────────────── */
   const handleDrag = (e) => {
@@ -51,6 +80,7 @@ function App() {
     setError(null);
     setUploading(true);
     setProgress(0);
+    setShowFindings(false);
 
     const formData = new FormData();
     formData.append('file', selectedFile);
@@ -64,6 +94,7 @@ function App() {
         },
       });
       setResult(res.data);
+      setAnalyzingSampleId(res.data.sample_id);
     } catch (err) {
       setError(
         err.response?.data?.detail ||
@@ -80,6 +111,190 @@ function App() {
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / 1048576).toFixed(2)} MB`;
+  };
+
+  /* ── Styling Helpers ─────────────────────────────── */
+  const getVerdictClass = (verdict) => {
+    if (verdict === 'safe') return 'verdict-badge--safe';
+    if (verdict === 'suspicious') return 'verdict-badge--suspicious';
+    if (verdict === 'dangerous') return 'verdict-badge--dangerous';
+    return '';
+  };
+
+  const getScoreCircleClass = (verdict) => {
+    if (verdict === 'safe') return 'score-circle--safe';
+    if (verdict === 'suspicious') return 'score-circle--suspicious';
+    if (verdict === 'dangerous') return 'score-circle--dangerous';
+    return '';
+  };
+
+  const getFindingIcon = (findingText) => {
+    const text = findingText.toLowerCase();
+    if (text.startsWith('yara')) return '🚨';
+    if (text.startsWith('permission')) return '🔑';
+    if (text.startsWith('structure')) return '⚙️';
+    return '•';
+  };
+
+  /* ── Render Subcomponents ──────────────────────── */
+  const STAGES = ['queued', 'unpacking', 'scanning', 'scoring', 'explaining', 'completed'];
+
+  const renderPipelineProgress = () => {
+    if (!result || !result.status) return null;
+    if (result.status === 'completed' || result.status === 'failed') return null;
+
+    const currentStatus = result.status;
+    const currentIndex = STAGES.indexOf(currentStatus);
+
+    return (
+      <div className="pipeline-progress">
+        <h3 className="pipeline-progress__title">Analyzing APK Security Profile…</h3>
+        <div className="pipeline-steps">
+          {STAGES.map((stage, idx) => {
+            let stepClass = 'pipeline-step';
+            let indicator = idx + 1;
+
+            if (idx < currentIndex) {
+              stepClass += ' pipeline-step--completed';
+              indicator = '✓';
+            } else if (idx === currentIndex) {
+              stepClass += ' pipeline-step--active';
+              indicator = '⏳';
+            } else {
+              stepClass += ' pipeline-step--pending';
+            }
+
+            const label = stage.charAt(0).toUpperCase() + stage.slice(1);
+            return (
+              <div key={stage} className={stepClass}>
+                <div className="pipeline-step__indicator">{indicator}</div>
+                <div className="pipeline-step__label">{label}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
+  const renderAnalysisResult = () => {
+    if (!result || (result.status !== 'completed' && result.status !== 'failed')) return null;
+
+    if (result.status === 'failed') {
+      return (
+        <div className="error-banner" style={{ marginTop: '36px' }}>
+          <strong>Analysis Failed:</strong> The scanning pipeline encountered a fatal error while analyzing this APK.
+        </div>
+      );
+    }
+
+    const {
+      filename,
+      original_filename,
+      sha256,
+      file_size,
+      risk_score,
+      verdict,
+      findings,
+      explanation,
+      package_name,
+      app_name,
+      version_name
+    } = result;
+
+    return (
+      <div className="result-card" id="result-card">
+        {/* Verdict Header */}
+        <div className="verdict-header">
+          <h2 className="verdict-header__title">
+            🛡️ {app_name || original_filename || filename}
+          </h2>
+          <span className={`verdict-badge ${getVerdictClass(verdict)}`}>
+            {verdict}
+          </span>
+        </div>
+
+        {/* Threat Score Indicator */}
+        <div className="score-container">
+          <div className={`score-circle ${getScoreCircleClass(verdict)}`}>
+            {risk_score}
+          </div>
+          <div className="score-details">
+            <span className="score-details__title">Risk Score</span>
+            <span className="score-details__desc">
+              Threat rating calculated out of 100 points
+            </span>
+          </div>
+        </div>
+
+        {/* Claude Plain-English Explanation */}
+        {explanation && (
+          <div className="explanation-card">
+            <h3 className="explanation-card__title">
+              💡 Security Summary (AI Interpretation)
+            </h3>
+            <div className="explanation-card__content">
+              {explanation}
+            </div>
+          </div>
+        )}
+
+        {/* Technical Metadata Details */}
+        <h3 className="result-card__title" style={{ marginTop: '24px', marginBottom: '12px' }}>
+          📋 Technical Metadata
+        </h3>
+        <div className="result-card__row">
+          <span className="result-card__label">Package Name</span>
+          <span className="result-card__value">{package_name || '—'}</span>
+        </div>
+        <div className="result-card__row">
+          <span className="result-card__label">Version</span>
+          <span className="result-card__value">{version_name || '—'}</span>
+        </div>
+        <div className="result-card__row">
+          <span className="result-card__label">SHA-256</span>
+          <span className="result-card__value">{sha256}</span>
+        </div>
+        <div className="result-card__row">
+          <span className="result-card__label">File Size</span>
+          <span className="result-card__value">{formatBytes(file_size)}</span>
+        </div>
+
+        {/* Collapsible Findings */}
+        {findings && findings.length > 0 && (
+          <div className="findings-section">
+            <div
+              className="findings-header"
+              onClick={() => setShowFindings(!showFindings)}
+            >
+              <div>
+                <span className="findings-header__title">Flagged Threat Markers</span>
+                <span className="findings-header__count">{findings.length}</span>
+              </div>
+              <span
+                className={`findings-header__arrow ${
+                  showFindings ? 'findings-header__arrow--open' : ''
+                }`}
+              >
+                ▼
+              </span>
+            </div>
+            {showFindings && (
+              <div className="findings-list">
+                {findings.map((finding, idx) => (
+                  <div key={idx} className="finding-item">
+                    <span className="finding-item__icon">
+                      {getFindingIcon(finding)}
+                    </span>
+                    <span className="finding-item__text">{finding}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -116,7 +331,7 @@ function App() {
         <p className="upload-zone__hint">.apk files only</p>
       </div>
 
-      {/* Progress */}
+      {/* Upload Progress */}
       {uploading && (
         <div className="progress-container">
           <div className="progress-bar">
@@ -126,54 +341,23 @@ function App() {
             />
           </div>
           <p className="progress-label">Uploading… {progress}%</p>
-          <span className="status-badge status-badge--loading">
-            ⏳ Analyzing
-          </span>
         </div>
       )}
 
-      {/* Error */}
+      {/* Error Banner */}
       {error && (
         <div className="error-banner" id="error-banner">
           <strong>Error:</strong> {error}
         </div>
       )}
 
-      {/* Result */}
-      {result && (
-        <div className="result-card" id="result-card">
-          <h2 className="result-card__title">📋 Analysis Result</h2>
+      {/* Pipeline Progress Indicator */}
+      {renderPipelineProgress()}
 
-          <div className="result-card__row">
-            <span className="result-card__label">Case ID</span>
-            <span className="result-card__value">{result.case_id}</span>
-          </div>
-          <div className="result-card__row">
-            <span className="result-card__label">Filename</span>
-            <span className="result-card__value">{result.filename}</span>
-          </div>
-          <div className="result-card__row">
-            <span className="result-card__label">SHA-256</span>
-            <span className="result-card__value">{result.sha256}</span>
-          </div>
-          <div className="result-card__row">
-            <span className="result-card__label">Size</span>
-            <span className="result-card__value">
-              {formatBytes(result.size_bytes)}
-            </span>
-          </div>
-          <div className="result-card__row">
-            <span className="result-card__label">Status</span>
-            <span className="result-card__value">
-              <span className="status-badge status-badge--success">
-                ✓ {result.status}
-              </span>
-            </span>
-          </div>
-        </div>
-      )}
+      {/* Final Analysis Report */}
+      {renderAnalysisResult()}
 
-      {/* Health */}
+      {/* Backend Health Check */}
       <p className="health-text">
         <span
           className={`health-dot ${
